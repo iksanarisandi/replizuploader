@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repliz Auto Uploader - Login</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1 class="title">Repliz Uploader</h1>
+      <p class="subtitle">Upload videos to all your connected channels</p>
+
+      <div id="error-message" class="error-message hidden"></div>
+
+      <form id="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input 
+            type="email" 
+            id="email" 
+            name="email" 
+            placeholder="your@email.com"
+            required 
+            autocomplete="email"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input 
+            type="password" 
+            id="password" 
+            name="password" 
+            placeholder="Minimum 8 characters"
+            required
+            minlength="8"
+            autocomplete="current-password"
+          >
+        </div>
+
+        <div class="button-group">
+          <button type="submit" id="login-btn" class="btn btn-primary">
+            Login
+          </button>
+          <button type="button" id="register-btn" class="btn btn-secondary">
+            Register
+          </button>
+        </div>
+      </form>
+
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>Please wait...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

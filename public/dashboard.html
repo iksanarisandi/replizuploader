@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repliz Auto Uploader - Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">Repliz Uploader Dashboard</h1>
+      <button id="logout-btn" class="btn btn-secondary btn-small">Logout</button>
+    </div>
+
+    <!-- Keys Card -->
+    <div class="card">
+      <h2 class="card-title">Repliz API Keys</h2>
+      <p class="card-subtitle">Save your Repliz Access Key and Secret Key</p>
+
+      <div id="keys-message" class="message hidden"></div>
+
+      <form id="keys-form">
+        <div class="form-group">
+          <label for="access-key">Access Key</label>
+          <input 
+            type="text" 
+            id="access-key" 
+            name="accessKey" 
+            placeholder="Your Repliz Access Key"
+            required
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="secret-key">Secret Key</label>
+          <input 
+            type="password" 
+            id="secret-key" 
+            name="secretKey" 
+            placeholder="Your Repliz Secret Key"
+            required
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+          Save Keys
+        </button>
+      </form>
+    </div>
+
+    <!-- Upload Card -->
+    <div class="card">
+      <h2 class="card-title">Upload Video</h2>
+      <p class="card-subtitle">Upload video to all connected Repliz channels (max 50MB)</p>
+
+      <div id="upload-message" class="message hidden"></div>
+
+      <form id="upload-form">
+        <div class="form-group">
+          <label for="video-file">Video File</label>
+          <input 
+            type="file" 
+            id="video-file" 
+            name="video" 
+            accept="video/*"
+            required
+          >
+          <small class="file-info" id="file-info"></small>
+        </div>
+
+        <div class="form-group">
+          <label for="title">Title</label>
+          <input 
+            type="text" 
+            id="title" 
+            name="title" 
+            placeholder="Video title (max 200 characters)"
+            required
+            maxlength="200"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea 
+            id="description" 
+            name="description" 
+            placeholder="Video description (max 2000 characters)"
+            required
+            maxlength="2000"
+            rows="4"
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Select Platforms</label>
+          <div id="platforms-selection">
+            <small style="color: #666;">Loading platforms...</small>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="upload-btn">
+          Upload to Selected Platforms
+        </button>
+      </form>
+
+      <!-- Upload Progress -->
+      <div id="upload-progress" class="upload-progress hidden">
+        <div class="spinner"></div>
+        <p id="progress-text">Uploading...</p>
+      </div>
+
+      <!-- Results -->
+      <div id="upload-results" class="upload-results hidden">
+        <h3>Upload Results</h3>
+        <div id="results-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>

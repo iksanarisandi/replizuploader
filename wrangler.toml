@@ -1,0 +1,19 @@
+name = "repliz-auto-uploader"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "repliz_db"
+database_id = "4a02bd32-4667-493d-a34c-bab49f1499ab"
+migrations_dir = "drizzle/migrations"
+
+# R2 Storage binding
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "repliz-uploads"
+
+# Public folder for static assets
+[site]
+bucket = "./public"
