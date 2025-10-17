@@ -3,6 +3,7 @@ import { authMiddleware } from './middleware/auth';
 import { generalRateLimit } from './middleware/rateLimit';
 import { securityHeaders } from './middleware/securityHeaders';
 import { corsMiddleware } from './middleware/cors';
+import { csrfProtection, csrfTokenEndpoint } from './middleware/csrf';
 import auth from './routes/auth';
 import keys from './routes/keys';
 import upload from './routes/upload';
@@ -45,6 +46,12 @@ app.use('/api/*', generalRateLimit);
 
 // Apply auth middleware globally to check session
 app.use('*', authMiddleware);
+
+// Apply CSRF protection to state-changing API routes
+app.use('/api/*', csrfProtection);
+
+// CSRF token endpoint (GET request to get new token)
+app.get('/api/csrf-token', csrfTokenEndpoint);
 
 // API Routes
 app.route('/api', auth);

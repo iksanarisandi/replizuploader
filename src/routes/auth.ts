@@ -4,11 +4,12 @@ import { getDb } from '../db/client';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { authSchema, generateId, getCurrentTimestamp } from '../lib/utils';
-import { createSession, setSessionCookie, clearSessionCookie, getSessionId, deleteSession } from '../lib/session';
+import { createSession, setSessionCookie, clearSessionCookie, getSessionId, deleteSession, regenerateSession } from '../lib/session';
 import { loginRateLimit, registerRateLimit } from '../middleware/rateLimit';
 import { createLogger } from '../lib/logger';
 import { SafeError } from '../lib/errorHandler';
 import { sanitizeEmail } from '../lib/sanitizer';
+import { createAndSetCSRFToken } from '../lib/csrf';
 import type { AppBindings } from '../index';
 
 const auth = new Hono<AppBindings>();
@@ -57,12 +58,16 @@ auth.post('/register', registerRateLimit, async (c) => {
     const sessionId = await createSession(db, userId);
     setSessionCookie(c, sessionId);
 
+    // Generate and set CSRF token for this session
+    const csrfToken = createAndSetCSRFToken(c);
+
     logger.info(`New user registered: ${validated.email}`);
     
     return c.json({
       success: true,
       userId,
       email: validated.email,
+      csrfToken, // Include CSRF token in response
     });
   } catch (error: any) {
     logger.error('Register error', error);
@@ -111,9 +116,15 @@ auth.post('/login', loginRateLimit, async (c) => {
       return c.json(response, response.statusCode as any);
     }
 
-    // Create session
-    const sessionId = await createSession(db, user.id);
+    // Get old session ID (if exists) for regeneration
+    const oldSessionId = getSessionId(c);
+
+    // Regenerate session to prevent session fixation
+    const sessionId = await regenerateSession(db, user.id, oldSessionId);
     setSessionCookie(c, sessionId);
+
+    // Generate and set CSRF token for this session
+    const csrfToken = createAndSetCSRFToken(c);
 
     logger.info(`User logged in: ${user.email}`);
     
@@ -121,6 +132,7 @@ auth.post('/login', loginRateLimit, async (c) => {
       success: true,
       userId: user.id,
       email: user.email,
+      csrfToken, // Include CSRF token in response
     });
   } catch (error: any) {
     logger.error('Login error', error);

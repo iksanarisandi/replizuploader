@@ -71,6 +71,39 @@ export async function deleteSession(db: DbClient, sessionId: string): Promise<vo
 }
 
 /**
+ * Regenerate session (for login - prevents session fixation)
+ * Deletes old session if exists and creates new one
+ */
+export async function regenerateSession(
+  db: DbClient,
+  userId: string,
+  oldSessionId?: string
+): Promise<string> {
+  // Delete old session if exists
+  if (oldSessionId) {
+    try {
+      await deleteSession(db, oldSessionId);
+    } catch (error) {
+      // Old session might not exist, that's ok
+      console.debug('Old session not found during regeneration:', oldSessionId);
+    }
+  }
+
+  // Create new session with new ID
+  return createSession(db, userId);
+}
+
+/**
+ * Delete all sessions for a user (for security purposes)
+ */
+export async function deleteAllUserSessions(
+  db: DbClient,
+  userId: string
+): Promise<void> {
+  await db.delete(userSessions).where(eq(userSessions.userId, userId)).run();
+}
+
+/**
  * Set session cookie
  */
 export function setSessionCookie(c: Context, sessionId: string): void {
