@@ -5,6 +5,8 @@ import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { authSchema, generateId, getCurrentTimestamp } from '../lib/utils';
 import { createSession, setSessionCookie, clearSessionCookie, getSessionId, deleteSession } from '../lib/session';
+import { loginRateLimit, registerRateLimit } from '../middleware/rateLimit';
+import { createLogger } from '../lib/logger';
 import type { AppBindings } from '../index';
 
 const auth = new Hono<AppBindings>();
@@ -13,7 +15,9 @@ const auth = new Hono<AppBindings>();
  * POST /api/register
  * Register new user
  */
-auth.post('/register', async (c) => {
+auth.post('/register', registerRateLimit, async (c) => {
+  const logger = createLogger(c.env);
+  
   try {
     const body = await c.req.json();
     const validated = authSchema.parse(body);
@@ -47,13 +51,15 @@ auth.post('/register', async (c) => {
     const sessionId = await createSession(db, userId);
     setSessionCookie(c, sessionId);
 
+    logger.info(`New user registered: ${validated.email}`);
+    
     return c.json({
       success: true,
       userId,
       email: validated.email,
     });
   } catch (error: any) {
-    console.error('Register error:', error);
+    logger.error('Register error', error);
     return c.json(
       { error: error.message || 'Registration failed', statusCode: 400 },
       400
@@ -65,7 +71,9 @@ auth.post('/register', async (c) => {
  * POST /api/login
  * Login user
  */
-auth.post('/login', async (c) => {
+auth.post('/login', loginRateLimit, async (c) => {
+  const logger = createLogger(c.env);
+  
   try {
     const body = await c.req.json();
     const validated = authSchema.parse(body);
@@ -93,13 +101,15 @@ auth.post('/login', async (c) => {
     const sessionId = await createSession(db, user.id);
     setSessionCookie(c, sessionId);
 
+    logger.info(`User logged in: ${user.email}`);
+    
     return c.json({
       success: true,
       userId: user.id,
       email: user.email,
     });
   } catch (error: any) {
-    console.error('Login error:', error);
+    logger.error('Login error', error);
     return c.json(
       { error: error.message || 'Login failed', statusCode: 400 },
       400
@@ -112,6 +122,8 @@ auth.post('/login', async (c) => {
  * Logout user
  */
 auth.post('/logout', async (c) => {
+  const logger = createLogger(c.env);
+  
   try {
     const db = getDb(c.env.DB);
     const sessionId = getSessionId(c);
@@ -122,9 +134,11 @@ auth.post('/logout', async (c) => {
 
     clearSessionCookie(c);
 
+    logger.info('User logged out');
+    
     return c.json({ success: true });
   } catch (error: any) {
-    console.error('Logout error:', error);
+    logger.error('Logout error', error);
     return c.json(
       { error: error.message || 'Logout failed', statusCode: 400 },
       400

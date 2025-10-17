@@ -4,9 +4,7 @@ import type { DbClient } from '../db/client';
 import { users, userSessions } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { generateId } from './utils';
-
-const SESSION_COOKIE_NAME = 'session_id';
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+import { SESSION_CONFIG } from './constants';
 
 export interface SessionUser {
   id: string;
@@ -21,7 +19,7 @@ export async function createSession(
   userId: string
 ): Promise<string> {
   const sessionId = generateId();
-  const expiresAt = Date.now() + SESSION_DURATION_MS;
+  const expiresAt = Date.now() + SESSION_CONFIG.DURATION_MS;
 
   await db.insert(userSessions).values({
     id: sessionId,
@@ -76,9 +74,9 @@ export async function deleteSession(db: DbClient, sessionId: string): Promise<vo
  * Set session cookie
  */
 export function setSessionCookie(c: Context, sessionId: string): void {
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+  const expiresAt = new Date(Date.now() + SESSION_CONFIG.DURATION_MS);
   
-  setCookie(c, SESSION_COOKIE_NAME, sessionId, {
+  setCookie(c, SESSION_CONFIG.COOKIE_NAME, sessionId, {
     path: '/',
     httpOnly: true,
     secure: true,
@@ -91,14 +89,14 @@ export function setSessionCookie(c: Context, sessionId: string): void {
  * Get session ID from cookie
  */
 export function getSessionId(c: Context): string | undefined {
-  return getCookie(c, SESSION_COOKIE_NAME);
+  return getCookie(c, SESSION_CONFIG.COOKIE_NAME);
 }
 
 /**
  * Clear session cookie
  */
 export function clearSessionCookie(c: Context): void {
-  deleteCookie(c, SESSION_COOKIE_NAME, {
+  deleteCookie(c, SESSION_CONFIG.COOKIE_NAME, {
     path: '/',
   });
 }

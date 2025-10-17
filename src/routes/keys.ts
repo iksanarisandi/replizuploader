@@ -6,6 +6,8 @@ import { keysSchema, generateId, getCurrentTimestamp } from '../lib/utils';
 import { encrypt } from '../lib/crypto';
 import { requireUser } from '../lib/session';
 import { requireAuth } from '../middleware/auth';
+import { saveKeysRateLimit } from '../middleware/rateLimit';
+import { createLogger } from '../lib/logger';
 import type { AppBindings } from '../index';
 
 const keys = new Hono<AppBindings>();
@@ -17,7 +19,9 @@ keys.use('/*', requireAuth);
  * POST /api/save-keys
  * Save Repliz access key and secret key (encrypted)
  */
-keys.post('/save-keys', async (c) => {
+keys.post('/save-keys', saveKeysRateLimit, async (c) => {
+  const logger = createLogger(c.env);
+  
   try {
     const body = await c.req.json();
     const validated = keysSchema.parse(body);
@@ -69,9 +73,11 @@ keys.post('/save-keys', async (c) => {
       }).run();
     }
 
+    logger.info(`API keys saved for user ${user.id}`);
+    
     return c.json({ success: true });
   } catch (error: any) {
-    console.error('Save keys error:', error);
+    logger.error('Save keys error', error);
     return c.json(
       { error: error.message || 'Failed to save keys', statusCode: 400 },
       400

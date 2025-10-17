@@ -1,24 +1,30 @@
 import { Hono } from 'hono';
 import { getDb } from '../db/client';
-import { replizKeys } from '../db/schema';
+import { replizKeys, uploads } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import {
   uploadMetadataSchema,
   generateId,
   getExtensionFromMime,
+  getCurrentTimestamp,
   MAX_FILE_SIZE,
   ALLOWED_VIDEO_TYPES,
 } from '../lib/utils';
 import { decrypt } from '../lib/crypto';
 import { requireUser } from '../lib/session';
 import { requireAuth } from '../middleware/auth';
+import { uploadRateLimit } from '../middleware/rateLimit';
+import { checkQuota, incrementQuota, decrementQuota } from '../lib/quota';
+import { calculateDeletionTime, deleteUpload } from '../lib/cleanup';
+import { createLogger } from '../lib/logger';
 import { getAccounts, createSchedule, type ReplizAccount } from '../lib/repliz';
 import type { AppBindings } from '../index';
 
 const upload = new Hono<AppBindings>();
 
-// Apply auth middleware
+// Apply auth middleware and rate limiting
 upload.use('/*', requireAuth);
+upload.use('/*', uploadRateLimit);
 
 interface UploadResult {
   accountId: string;
@@ -33,7 +39,9 @@ interface UploadResult {
  * Upload video to R2 and schedule to all connected Repliz accounts
  */
 upload.post('/upload', async (c) => {
+  const logger = createLogger(c.env);
   let uploadedFilename: string | null = null;
+  let uploadId: string | null = null;
 
   try {
     const user = requireUser(c);
@@ -112,6 +120,27 @@ upload.post('/upload', async (c) => {
       );
     }
 
+    // Check user quota before upload
+    const quotaCheck = await checkQuota(db, user.id, videoFile.size);
+    if (!quotaCheck.allowed) {
+      logger.warn(`Upload blocked - quota exceeded for user ${user.id}`, {
+        reason: quotaCheck.reason,
+        current: quotaCheck.current,
+      });
+      
+      return c.json(
+        {
+          error: quotaCheck.reason,
+          statusCode: 429,
+          quota: {
+            current: quotaCheck.current,
+            limits: quotaCheck.limits,
+          },
+        },
+        429
+      );
+    }
+
     // Generate unique filename
     const extension = getExtensionFromMime(videoFile.type);
     const filename = `${generateId()}${extension}`;
@@ -124,23 +153,49 @@ upload.post('/upload', async (c) => {
       },
     });
 
+    // Increment quota
+    await incrementQuota(db, user.id, videoFile.size);
+
+    // Track upload in database
+    uploadId = generateId();
+    const now = getCurrentTimestamp();
+    const scheduledDeletion = calculateDeletionTime();
+    
+    await db.insert(uploads).values({
+      id: uploadId,
+      userId: user.id,
+      filename,
+      fileSizeBytes: videoFile.size,
+      mimeType: videoFile.type,
+      title: metadata.title,
+      description: metadata.description,
+      uploadedAt: now,
+      scheduledDeletionAt: scheduledDeletion,
+      isDeleted: false,
+      deletedAt: null,
+    }).run();
+
     // Get public URL using custom domain
     const videoUrl = `https://post.komen.autos/${filename}`;
     
-    console.log('Video uploaded to R2:', filename);
-    console.log('Video URL:', videoUrl);
-    console.log('Decrypted Repliz credentials - Access Key length:', accessKey.length);
+    logger.info(`Video uploaded to R2: ${filename}`, {
+      size: videoFile.size,
+      type: videoFile.type,
+      scheduledDeletion: scheduledDeletion.toISOString(),
+    });
+    logger.debug(`Video URL: ${videoUrl}`);
 
     // Get all connected Repliz accounts
     let accounts: ReplizAccount[];
     try {
-      console.log('Fetching Repliz accounts...');
+      logger.debug('Fetching Repliz accounts...');
       accounts = await getAccounts(accessKey, secretKey);
-      console.log('Found accounts:', accounts.length, accounts.map(a => ({ id: a._id, name: a.name, type: a.type })));
+      logger.info(`Found ${accounts.length} connected Repliz accounts`);
     } catch (error: any) {
-      console.error('Failed to get Repliz accounts:', error.message);
-      // Clean up uploaded file
-      await c.env.UPLOADS.delete(filename);
+      logger.error('Failed to get Repliz accounts', error);
+      // Clean up uploaded file and rollback quota
+      await deleteUpload(db, c.env.UPLOADS, filename, c.env);
+      await decrementQuota(db, user.id, videoFile.size);
       return c.json(
         { error: `Failed to get Repliz accounts: ${error.message}`, statusCode: 400 },
         400
@@ -148,8 +203,9 @@ upload.post('/upload', async (c) => {
     }
 
     if (accounts.length === 0) {
-      // Clean up uploaded file
-      await c.env.UPLOADS.delete(filename);
+      // Clean up uploaded file and rollback quota
+      await deleteUpload(db, c.env.UPLOADS, filename, c.env);
+      await decrementQuota(db, user.id, videoFile.size);
       return c.json(
         {
           error: 'No connected accounts found. Please connect at least one account in Repliz.',
@@ -172,11 +228,11 @@ upload.post('/upload', async (c) => {
       ? accounts.filter(acc => platformsList.includes(acc.type))
       : accounts;
     
-    console.log('Target platforms:', targetAccounts.map(a => a.type));
+    logger.info(`Scheduling to ${targetAccounts.length} platforms`);
 
     for (const account of targetAccounts) {
       try {
-        console.log(`Scheduling to account ${account.name} (${account.type})...`);
+        logger.debug(`Scheduling to account ${account.name} (${account.type})...`);
         
         // TikTok requires type: "video", other platforms use "image"
         const scheduleType = account.type === 'tiktok' ? 'video' : 'image';
@@ -196,14 +252,14 @@ upload.post('/upload', async (c) => {
           accountId: account._id,
         };
         
-        console.log(`Payload for ${account.type}:`, JSON.stringify(payload, null, 2));
+        logger.debug(`Payload for ${account.type}`, { payload });
         
         const scheduleResponse = await createSchedule(
           payload,
           accessKey,
           secretKey
         );
-        console.log(`Successfully scheduled to ${account.name}:`, JSON.stringify(scheduleResponse, null, 2));
+        logger.info(`Successfully scheduled to ${account.name}`);
 
         results.push({
           accountId: account._id,
@@ -212,7 +268,7 @@ upload.post('/upload', async (c) => {
           status: 'success',
         });
       } catch (error: any) {
-        console.error(`Failed to schedule for account ${account._id}:`, error.message);
+        logger.error(`Failed to schedule for account ${account._id}`, error);
         results.push({
           accountId: account._id,
           accountName: account.name,
@@ -223,10 +279,8 @@ upload.post('/upload', async (c) => {
       }
     }
 
-    // NOTE: Keep file in R2 so Repliz can download it
-    // Repliz needs to access the video URL to download and process
-    // TODO: Implement cleanup after 24 hours or use Repliz webhooks
-    console.log('Video kept in R2 for Repliz to download:', filename);
+    // File will be automatically deleted after 48 hours by the cleanup cron job
+    logger.info(`File scheduled for cleanup at ${scheduledDeletion.toISOString()}`);
 
     // Check if all failed
     const successCount = results.filter((r) => r.status === 'success').length;
@@ -247,14 +301,30 @@ upload.post('/upload', async (c) => {
       results,
     });
   } catch (error: any) {
-    console.error('Upload error:', error);
+    logger.error('Upload error', error);
 
-    // Clean up uploaded file if exists
+    // Clean up uploaded file if exists and rollback quota
     if (uploadedFilename) {
       try {
-        await c.env.UPLOADS.delete(uploadedFilename);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup file:', cleanupError);
+        const user = c.get('user');
+        const db = getDb(c.env.DB);
+        
+        // Get file size for quota rollback
+        const upload = await db
+          .select()
+          .from(uploads)
+          .where(eq(uploads.filename, uploadedFilename))
+          .get();
+        
+        // Delete from R2 and database
+        await deleteUpload(db, c.env.UPLOADS, uploadedFilename, c.env);
+        
+        // Rollback quota if we have the upload record
+        if (upload && user) {
+          await decrementQuota(db, user.id, upload.fileSizeBytes);
+        }
+      } catch (cleanupError: any) {
+        logger.error('Failed to cleanup after error', cleanupError);
       }
     }
 

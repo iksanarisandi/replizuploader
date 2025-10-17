@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import { authMiddleware } from './middleware/auth';
+import { generalRateLimit } from './middleware/rateLimit';
 import auth from './routes/auth';
 import keys from './routes/keys';
 import upload from './routes/upload';
 import platforms from './routes/platforms';
+import cleanup from './routes/cleanup';
 import type { SessionUser } from './lib/session';
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
@@ -14,8 +16,10 @@ export interface Env {
   DB: D1Database;
   UPLOADS: R2Bucket;
   CF_SECRET: string;
+  RATE_LIMIT_KV: KVNamespace; // For rate limiting
   UPLOADS_BUCKET_ID?: string; // Optional: for R2 public URL
   __STATIC_CONTENT: KVNamespace;
+  ENVIRONMENT?: string; // 'production' or 'development'
 }
 
 export type AppBindings = {
@@ -27,6 +31,9 @@ export type AppBindings = {
 
 const app = new Hono<AppBindings>();
 
+// Apply global rate limiting to all API routes
+app.use('/api/*', generalRateLimit);
+
 // Apply auth middleware globally to check session
 app.use('*', authMiddleware);
 
@@ -35,6 +42,7 @@ app.route('/api', auth);
 app.route('/api', keys);
 app.route('/api', upload);
 app.route('/api', platforms);
+app.route('/api', cleanup);
 
 // Serve static files from Workers KV
 app.get('/*', async (c) => {
@@ -102,4 +110,24 @@ app.onError((err, c) => {
   );
 });
 
-export default app;
+// Export with scheduled handler for cron trigger
+export default {
+  fetch: app.fetch,
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    // Import cleanup function
+    const { getDb } = await import('./db/client');
+    const { cleanupExpiredFiles } = await import('./lib/cleanup');
+    const { createLogger } = await import('./lib/logger');
+    
+    const logger = createLogger(env);
+    logger.info('Scheduled cleanup triggered');
+    
+    try {
+      const db = getDb(env.DB);
+      const result = await cleanupExpiredFiles(db, env.UPLOADS, env);
+      logger.info('Scheduled cleanup completed', result);
+    } catch (error: any) {
+      logger.error('Scheduled cleanup failed', error);
+    }
+  },
+};

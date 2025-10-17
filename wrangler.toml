@@ -14,6 +14,15 @@ migrations_dir = "drizzle/migrations"
 binding = "UPLOADS"
 bucket_name = "repliz-uploads"
 
+# KV Namespace for rate limiting
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "4afa9789d49746f4a5ec2cde7cd93042"
+
 # Public folder for static assets
 [site]
 bucket = "./public"
+
+# Cron Trigger for automatic file cleanup (every 6 hours)
+[triggers]
+crons = ["0 */6 * * *"]
