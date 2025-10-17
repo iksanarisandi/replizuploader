@@ -30,6 +30,9 @@ Thumbs.db
 
 # Test files
 test.txt
+test*.json
+cookies.txt
+run-server.ps1
 
 # Documentation (external)
 replizAPI.html

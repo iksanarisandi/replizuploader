@@ -1,8 +1,24 @@
 /**
  * Input Sanitizer
  * Sanitizes user input to prevent XSS attacks
+ * Workers-compatible implementation (no DOM dependencies)
  */
-import DOMPurify from 'isomorphic-dompurify';
+
+/**
+ * Escape HTML entities to prevent XSS
+ */
+function escapeHtml(str: string): string {
+  const htmlEscapes: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '/': '&#x2F;',
+  };
+  
+  return str.replace(/[&<>"'\/]/g, (match) => htmlEscapes[match]);
+}
 
 /**
  * Sanitize HTML input (allows safe HTML tags)
@@ -10,11 +26,9 @@ import DOMPurify from 'isomorphic-dompurify';
 export function sanitizeHtml(dirty: string): string {
   if (!dirty) return '';
   
-  return DOMPurify.sanitize(dirty, {
-    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'br', 'p'],
-    ALLOWED_ATTR: ['href'],
-    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
-  });
+  // For Workers, we'll just escape HTML entities
+  // This is safer and doesn't require DOM
+  return escapeHtml(dirty);
 }
 
 /**
@@ -23,12 +37,14 @@ export function sanitizeHtml(dirty: string): string {
 export function sanitizeText(text: string): string {
   if (!text) return '';
   
-  // First, remove all HTML tags using DOMPurify
-  const cleaned = DOMPurify.sanitize(text, { ALLOWED_TAGS: [] });
-  
-  // Additional cleaning for extra safety
-  return cleaned
+  // Remove HTML tags and dangerous characters
+  return text
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '') // Remove style tags
+    .replace(/<[^>]+>/g, '') // Remove all HTML tags
     .replace(/[<>]/g, '') // Remove any remaining angle brackets
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/on\w+\s*=/gi, '') // Remove event handlers
     .trim();
 }
 

@@ -15,12 +15,9 @@
   "description": "",
   "dependencies": {
     "@cloudflare/kv-asset-handler": "^0.4.0",
-    "@types/dompurify": "^3.0.5",
     "bcryptjs": "^3.0.2",
-    "dompurify": "^3.3.0",
     "drizzle-orm": "^0.44.6",
     "hono": "^4.10.0",
-    "isomorphic-dompurify": "^2.29.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
