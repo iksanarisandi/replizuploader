@@ -1,12 +1,15 @@
 import { Hono } from 'hono';
 import { authMiddleware } from './middleware/auth';
 import { generalRateLimit } from './middleware/rateLimit';
+import { securityHeaders } from './middleware/securityHeaders';
+import { corsMiddleware } from './middleware/cors';
 import auth from './routes/auth';
 import keys from './routes/keys';
 import upload from './routes/upload';
 import platforms from './routes/platforms';
 import cleanup from './routes/cleanup';
 import type { SessionUser } from './lib/session';
+import { SafeError } from './lib/errorHandler';
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
 const assetManifest: Record<string, string> = JSON.parse(manifestJSON || '{}');
@@ -30,6 +33,12 @@ export type AppBindings = {
 };
 
 const app = new Hono<AppBindings>();
+
+// Apply CORS policy (FIRST - needs to handle preflight)
+app.use('*', (c, next) => corsMiddleware(c.env)(c, next));
+
+// Apply security headers to all responses
+app.use('*', securityHeaders);
 
 // Apply global rate limiting to all API routes
 app.use('/api/*', generalRateLimit);
@@ -101,13 +110,11 @@ app.notFound((c) => {
   return c.json({ error: 'Not Found', statusCode: 404 }, 404);
 });
 
-// Error handler
+// Error handler with safe error responses
 app.onError((err, c) => {
-  console.error('App error:', err);
-  return c.json(
-    { error: err.message || 'Internal Server Error', statusCode: 500 },
-    500
-  );
+  // Use SafeError to prevent information disclosure
+  const safeResponse = SafeError.handle(err, 500, c.env);
+  return c.json(safeResponse, safeResponse.statusCode as any);
 });
 
 // Export with scheduled handler for cron trigger

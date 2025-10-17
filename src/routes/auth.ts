@@ -7,6 +7,8 @@ import { authSchema, generateId, getCurrentTimestamp } from '../lib/utils';
 import { createSession, setSessionCookie, clearSessionCookie, getSessionId, deleteSession } from '../lib/session';
 import { loginRateLimit, registerRateLimit } from '../middleware/rateLimit';
 import { createLogger } from '../lib/logger';
+import { SafeError } from '../lib/errorHandler';
+import { sanitizeEmail } from '../lib/sanitizer';
 import type { AppBindings } from '../index';
 
 const auth = new Hono<AppBindings>();
@@ -20,6 +22,10 @@ auth.post('/register', registerRateLimit, async (c) => {
   
   try {
     const body = await c.req.json();
+    // Sanitize email before validation
+    if (body.email) {
+      body.email = sanitizeEmail(body.email);
+    }
     const validated = authSchema.parse(body);
 
     const db = getDb(c.env.DB);
@@ -76,6 +82,10 @@ auth.post('/login', loginRateLimit, async (c) => {
   
   try {
     const body = await c.req.json();
+    // Sanitize email before validation
+    if (body.email) {
+      body.email = sanitizeEmail(body.email);
+    }
     const validated = authSchema.parse(body);
 
     const db = getDb(c.env.DB);
@@ -88,13 +98,17 @@ auth.post('/login', loginRateLimit, async (c) => {
       .get();
 
     if (!user) {
-      return c.json({ error: 'Invalid email or password', statusCode: 401 }, 401);
+      // Use generic message to prevent user enumeration
+      const response = SafeError.handle(new Error('Authentication failed'), 401, c.env);
+      return c.json(response, response.statusCode as any);
     }
 
     // Verify password
     const isValid = await compare(validated.password, user.passwordHash);
     if (!isValid) {
-      return c.json({ error: 'Invalid email or password', statusCode: 401 }, 401);
+      // Use generic message to prevent user enumeration
+      const response = SafeError.handle(new Error('Authentication failed'), 401, c.env);
+      return c.json(response, response.statusCode as any);
     }
 
     // Create session

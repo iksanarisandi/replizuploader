@@ -17,6 +17,7 @@ import { uploadRateLimit } from '../middleware/rateLimit';
 import { checkQuota, incrementQuota, decrementQuota } from '../lib/quota';
 import { calculateDeletionTime, deleteUpload } from '../lib/cleanup';
 import { createLogger } from '../lib/logger';
+import { sanitizeText } from '../lib/sanitizer';
 import { getAccounts, createSchedule, type ReplizAccount } from '../lib/repliz';
 import type { AppBindings } from '../index';
 
@@ -79,15 +80,19 @@ upload.post('/upload', async (c) => {
     // Parse multipart form data
     const formData = await c.req.formData();
     const videoFile = formData.get('video') as File | null;
-    const title = formData.get('title') as string | null;
-    const description = formData.get('description') as string | null;
+    const titleRaw = formData.get('title') as string | null;
+    const descriptionRaw = formData.get('description') as string | null;
 
-    if (!videoFile || !title || !description) {
+    if (!videoFile || !titleRaw || !descriptionRaw) {
       return c.json(
         { error: 'Missing required fields: video, title, description', statusCode: 400 },
         400
       );
     }
+
+    // Sanitize input to prevent XSS
+    const title = sanitizeText(titleRaw);
+    const description = sanitizeText(descriptionRaw);
 
     // Validate metadata
     const metadata = uploadMetadataSchema.parse({ title, description });
@@ -235,7 +240,7 @@ upload.post('/upload', async (c) => {
         logger.debug(`Scheduling to account ${account.name} (${account.type})...`);
         
         // TikTok requires type: "video", other platforms use "image"
-        const scheduleType = account.type === 'tiktok' ? 'video' : 'image';
+        const scheduleType: 'video' | 'image' = account.type === 'tiktok' ? 'video' : 'image';
         
         const payload = {
           title: metadata.title,
@@ -243,7 +248,7 @@ upload.post('/upload', async (c) => {
           type: scheduleType,
           medias: [
             {
-              type: 'video',
+              type: 'video' as const,
               url: videoUrl,
               thumbnail: videoUrl,
             },
